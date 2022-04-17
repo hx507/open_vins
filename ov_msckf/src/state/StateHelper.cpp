@@ -19,6 +19,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "StateHelper.h"
+#include "heterocc.h"
 
 
 using namespace ov_core;
@@ -126,6 +127,22 @@ void StateHelper::EKFUpdate(State *state, const std::vector<Type *> &H_order, co
         current_it += meas_var->size();
     }
 
+    void* DFG = __hetero__launch_begin(0,0);
+        void *Section = __hetero_section_begin();
+
+    void* Wrapper = __hetero_task_begin(0,0,"stencil_wrapper_task");
+    void *Section_Wrapped = __hetero_section_begin();
+
+        for (size_t c = 0; c < 100; c++) {
+            __hetero_parallel_loop(1, 0,0, "stencil_parallel_loop");
+            __hpvm__hint(hpvm::DEVICE);
+            //__hpvm__hint(hpvm::GPU_TARGET);
+            int k=c;
+        }
+    __hetero_section_end(Section_Wrapped);
+    __hetero_task_end(Wrapper);
+    __hetero_section_end(Section);
+    __hetero__launch_end(DFG);
     //==========================================================
     //==========================================================
     // For each active variable find its M = P*H^T

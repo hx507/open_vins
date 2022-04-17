@@ -103,6 +103,43 @@ target_include_directories(ov_msckf_lib PUBLIC src)
 
 
 ##################################################
+# Hetero-cc routines
+##################################################
+set(HPVM_DECLS_FILE /host_dir/hpvm/hpvm/build/tools/hpvm/projects/hetero-c++/lib/HPVMCFunctionDeclarations/HPVMCFunctionDeclarations.bc)
+set(HPVM_BUILD /host_dir/hpvm/hpvm/build/)
+list(APPEND HPVM_INCLUDE
+    ${HPVM_BUILD}/include
+    ${HPVM_BUILD}/tools/hpvm
+    ${HPVM_BUILD}/tools/hpvm/projects/hpvm-tensor-rt/tensor_runtime/include
+    /host_dir/hpvm/hpvm/llvm/include
+    /host_dir/hpvm/hpvm/llvm/tools/hpvm/./include
+    /host_dir/hpvm/hpvm/llvm/tools/hpvm/projects/hpvm-tensor-rt/./tensor_runtime/include
+    /usr/local/cuda/targets/x86_64-linux/include
+    /usr/include
+)
+list(TRANSFORM HPVM_INCLUDE PREPEND -I)
+
+function(hetero_compile_obj source_files obj_files)
+  foreach(src obj IN ZIP_LISTS source_files obj_files)
+      get_filename_component(src_name ${src} NAME)
+      MESSAGE(INFO Compile as Hetero-cc: ${src_name})
+      add_custom_command(
+        OUTPUT ${obj}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        #COMMAND clang++-10 -fPIC -c ${src} ${MSCKF_INCLUDES}
+        COMMAND ${HPVM_BUILD}/bin/clang++ -O1 ${HPVM_INCLUDE} ${MSCKF_INCLUDES} -DDEVICE=CPU_TARGET -emit-llvm -S ${src} -o ${src_name}.hetero.ll
+        COMMAND ${HPVM_BUILD}/bin/hcc -declsfile ${HPVM_DECLS_FILE} -sanitise-funcs -S ${src_name}.hetero.ll -o ${src_name}.ll
+        COMMAND ${HPVM_BUILD}/bin/opt -enable-new-pm=0 -load HPVMGenHPVM.so -genhpvm -globaldce -S ${src_name}.ll -o ${src_name}.hpvm.ll
+        COMMAND ${HPVM_BUILD}/bin/opt -enable-new-pm=0 -load HPVMBuildDFG.so -load HPVMLocalMem.so -load HPVMDFG2LLVM_CPU.so -load HPVMClearDFG.so -buildDFG -localmem -dfg2llvm-cpu -clearDFG -S ${src_name}.hpvm.ll -o ${src_name}.hpvm.ll
+        COMMAND ${HPVM_BUILD}/bin/llvm-link ${src_name}.hpvm.ll /host_dir/hpvm/hpvm/build/tools/hpvm/projects/hpvm-rt/hpvm-rt.bc -S -o ${src_name}.linked.bc
+        COMMAND ${HPVM_BUILD}/bin/clang++ ${src_name}.linked.bc -o ${obj} -L/host_dir/hpvm/hpvm/build/lib -Wl,-rpath=/host_dir/hpvm/hpvm/build/lib -L/usr/local/cuda/lib64 -Wl,-rpath=/usr/local/cuda/lib64 -lpthread -l:libtensor_runtime.so -l:libOpenCL.so
+        DEPENDS ${src}
+        )
+  endforeach()
+endfunction()
+
+
+##################################################
 # Make hetero-cc objects
 ##################################################
 list(APPEND hetero_source_files
@@ -118,11 +155,7 @@ list(TRANSFORM hetero_obj_files PREPEND ${CMAKE_CURRENT_BINARY_DIR})
 get_target_property(MSCKF_INCLUDES ov_msckf_lib INCLUDE_DIRECTORIES)
 list(TRANSFORM MSCKF_INCLUDES PREPEND -I)
 
-add_custom_command(
-  OUTPUT ${hetero_obj_files}
-  COMMAND clang++-10 -fPIC -c ${hetero_source_files} ${MSCKF_INCLUDES}
-  DEPENDS ${hetero_source_files}
-  )
+hetero_compile_obj(${hetero_source_files} ${hetero_obj_files})
 
 add_library(HETERO_DEP OBJECT ${hetero_obj_files}) # dummy dependence lib
 
