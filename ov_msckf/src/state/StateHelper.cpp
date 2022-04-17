@@ -20,6 +20,7 @@
  */
 #include "StateHelper.h"
 #include "heterocc.h"
+#include "hpvm.h"
 
 
 using namespace ov_core;
@@ -127,6 +128,7 @@ void StateHelper::EKFUpdate(State *state, const std::vector<Type *> &H_order, co
         current_it += meas_var->size();
     }
 
+    __hpvm__init();
     void* DFG = __hetero__launch_begin(0,0);
         void *Section = __hetero_section_begin();
 
@@ -143,6 +145,7 @@ void StateHelper::EKFUpdate(State *state, const std::vector<Type *> &H_order, co
     __hetero_task_end(Wrapper);
     __hetero_section_end(Section);
     __hetero__launch_end(DFG);
+    __hpvm__cleanup();
     //==========================================================
     //==========================================================
     // For each active variable find its M = P*H^T
@@ -203,7 +206,7 @@ void StateHelper::EKFUpdate(State *state, const std::vector<Type *> &H_order, co
 
 
 
-Eigen::MatrixXd StateHelper::get_marginal_covariance(State *state, const std::vector<Type *> &small_variables) {
+Eigen::Matrixhpvm StateHelper::get_marginal_covariance(State *state, const std::vector<Type *> &small_variables) {
 
     // Calculate the marginal covariance size we need to make our matrix
     int cov_size = 0;
