@@ -85,7 +85,7 @@ endif()
 list(APPEND library_source_files
         src/sim/Simulator.cpp
         src/state/State.cpp
-        src/state/StateHelper.cpp
+        #src/state/StateHelper.cpp
         src/state/Propagator.cpp
         src/core/VioManager.cpp
         src/update/UpdaterHelper.cpp
@@ -103,6 +103,35 @@ target_include_directories(ov_msckf_lib PUBLIC src)
 
 
 ##################################################
+# Make hetero-cc objects
+##################################################
+list(APPEND hetero_source_files
+        /src/state/StateHelper_hetero.cpp
+)
+list(TRANSFORM hetero_source_files PREPEND ${CMAKE_CURRENT_SOURCE_DIR})
+
+list(APPEND hetero_obj_files
+        StateHelper_hetero.o
+)
+list(TRANSFORM hetero_obj_files PREPEND ${CMAKE_CURRENT_BINARY_DIR})
+
+get_target_property(MSCKF_INCLUDES ov_msckf_lib INCLUDE_DIRECTORIES)
+list(TRANSFORM MSCKF_INCLUDES PREPEND -I)
+
+add_custom_command(
+  OUTPUT ${hetero_obj_files}
+  COMMAND clang++-10 -fPIC -c ${hetero_source_files} ${MSCKF_INCLUDES}
+  DEPENDS ${hetero_source_files}
+  )
+
+add_library(HETERO_DEP OBJECT ${hetero_obj_files}) # dummy dependence lib
+
+add_library(HETERO_OBJS OBJECT IMPORTED DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/StateHelper_hetero.o)
+set_property(TARGET HETERO_OBJS PROPERTY 
+    IMPORTED_OBJECTS ${CMAKE_CURRENT_BINARY_DIR}/StateHelper_hetero.o
+)
+
+##################################################
 # Make binary files!
 ##################################################
 
@@ -111,5 +140,6 @@ if (ILLIXR_INTEGRATION)
     target_link_libraries(slam2 ov_msckf_lib ${thirdparty_libraries})
 else()
     add_executable(run_illixr_msckf src/run_illixr_msckf.cpp)
-    target_link_libraries(run_illixr_msckf ov_msckf_lib ${thirdparty_libraries})
+    target_link_libraries(run_illixr_msckf ov_msckf_lib ${thirdparty_libraries} $<TARGET_OBJECTS:HETERO_OBJS>)
+    add_dependencies(run_illixr_msckf HETERO_DEP)
 endif()
