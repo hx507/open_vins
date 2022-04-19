@@ -111,15 +111,20 @@ void StateHelper::EKFPropagation(State *state, const std::vector<Type*> &order_N
 
 
 void dummy(){
+    size_t dummy_size = 100;
+    int* dummy_mem = new int[dummy_size];
     __hpvm__init();
-    void* DFG = __hetero_launch_begin(0,0);
-        void *Section = __hetero_section_begin();
+    void* DFG = __hetero_launch_begin(1, dummy_mem, dummy_size, 
+                                      1, dummy_mem, dummy_size);
+    void *Section = __hetero_section_begin();
 
-    void* Wrapper = __hetero_task_begin(0,0,"stencil_wrapper_task");
+    void* Wrapper = __hetero_task_begin(1, dummy_mem, dummy_size,
+                                        1, dummy_mem, dummy_size,"stencil_wrapper_task");
     void *Section_Wrapped = __hetero_section_begin();
 
         for (size_t c = 0; c < 100; c++) {
-            __hetero_parallel_loop(1, 0,0, "stencil_parallel_loop");
+            __hetero_parallel_loop(1, 1, dummy_mem, dummy_size,
+                                   1, dummy_mem, dummy_size, "stencil_parallel_loop");
             //__hpvm__hint(hpvm::DEVICE);
             //__hpvm__hint(hpvm::GPU_TARGET);
             int k=c;
@@ -149,24 +154,6 @@ void StateHelper::EKFUpdate(State *state, const std::vector<Type *> &H_order, co
         current_it += meas_var->size();
     }
 
-    __hpvm__init();
-    void* DFG = __hetero_launch_begin(0,0);
-        void *Section = __hetero_section_begin();
-
-    void* Wrapper = __hetero_task_begin(0,0,"stencil_wrapper_task");
-    void *Section_Wrapped = __hetero_section_begin();
-
-        for (size_t c = 0; c < 100; c++) {
-            __hetero_parallel_loop(1, 0,0, "stencil_parallel_loop");
-            //__hpvm__hint(hpvm::DEVICE);
-            //__hpvm__hint(hpvm::GPU_TARGET);
-            int k=c;
-        }
-    __hetero_section_end(Section_Wrapped);
-    __hetero_task_end(Wrapper);
-    __hetero_section_end(Section);
-    __hetero_launch_end(DFG);
-    __hpvm__cleanup();
     //==========================================================
     //==========================================================
     // For each active variable find its M = P*H^T
