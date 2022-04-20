@@ -15,11 +15,13 @@ project(ov_msckf)
 find_package(Eigen3 REQUIRED)
 find_package(OpenCV 4 REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system filesystem thread date_time)
+find_package(CUDAToolkit REQUIRED)
 
 # display message to user
 message(STATUS "EIGEN VERSION: " ${EIGEN3_VERSION})
 message(STATUS "OPENCV VERSION: " ${OpenCV_VERSION})
 message(STATUS "BOOST VERSION: " ${Boost_VERSION})
+message(STATUS "CUDA VERSION: " ${CUDAToolkit_VERSION})
 
 # Describe catkin project
 if (catkin_FOUND)
@@ -132,7 +134,8 @@ function(hetero_compile_obj source_files obj_files)
         COMMAND ${HPVM_BUILD}/bin/opt -enable-new-pm=0 -load HPVMGenHPVM.so -genhpvm -globaldce -S ${src_name}.ll -o ${src_name}.hpvm.ll
         COMMAND ${HPVM_BUILD}/bin/opt -enable-new-pm=0 -load HPVMBuildDFG.so -load HPVMLocalMem.so -load HPVMDFG2LLVM_CPU.so -load HPVMClearDFG.so -buildDFG -localmem -dfg2llvm-cpu -clearDFG -S ${src_name}.hpvm.ll -o ${src_name}.hpvm.ll
         COMMAND ${HPVM_BUILD}/bin/llvm-link ${src_name}.hpvm.ll /host_dir/hpvm/hpvm/build/tools/hpvm/projects/hpvm-rt/hpvm-rt.bc -S -o ${src_name}.linked.bc
-        COMMAND ${HPVM_BUILD}/bin/clang++ ${src_name}.linked.bc -o ${obj} -L/host_dir/hpvm/hpvm/build/lib -Wl,-rpath=/host_dir/hpvm/hpvm/build/lib -L/usr/local/cuda/lib64 -Wl,-rpath=/usr/local/cuda/lib64 -lpthread -l:libtensor_runtime.so -l:libOpenCL.so
+        COMMAND ${HPVM_BUILD}/bin/clang++ -c ${src_name}.linked.bc -o ${obj} -fPIC -lpthread -l:libtensor_runtime.so -l:libOpenCL.so
+        #COMMAND ${HPVM_BUILD}/bin/clang++ -c ${src_name}.linked.bc -o ${obj} -fPIC -L/host_dir/hpvm/hpvm/build/lib -Wl,-rpath=/host_dir/hpvm/hpvm/build/lib -L/usr/local/cuda/lib64 -Wl,-rpath=/usr/local/cuda/lib64 -lpthread -l:libtensor_runtime.so -l:libOpenCL.so
         DEPENDS ${src}
         )
   endforeach()
@@ -148,7 +151,7 @@ list(APPEND hetero_source_files
 list(TRANSFORM hetero_source_files PREPEND ${CMAKE_CURRENT_SOURCE_DIR})
 
 list(APPEND hetero_obj_files
-        StateHelper_hetero.o
+        /StateHelper_hetero.o
 )
 list(TRANSFORM hetero_obj_files PREPEND ${CMAKE_CURRENT_BINARY_DIR})
 
@@ -174,5 +177,6 @@ if (ILLIXR_INTEGRATION)
 else()
     add_executable(run_illixr_msckf src/run_illixr_msckf.cpp)
     target_link_libraries(run_illixr_msckf ov_msckf_lib ${thirdparty_libraries} $<TARGET_OBJECTS:HETERO_OBJS>)
+    target_link_libraries(run_illixr_msckf PRIVATE CUDA::OpenCL)
     add_dependencies(run_illixr_msckf HETERO_DEP)
 endif()

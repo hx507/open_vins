@@ -127,7 +127,7 @@ void dummy(){
                                    1, dummy_mem, dummy_size, "stencil_parallel_loop");
             //__hpvm__hint(hpvm::DEVICE);
             //__hpvm__hint(hpvm::GPU_TARGET);
-            int k=c;
+            dummy_mem[c]=c;
         }
     __hetero_section_end(Section_Wrapped);
     __hetero_task_end(Wrapper);
