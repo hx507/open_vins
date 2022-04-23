@@ -70,6 +70,7 @@ list(APPEND thirdparty_libraries
         ${Boost_LIBRARIES}
         ${OpenCV_LIBRARIES}
         ${catkin_LIBRARIES}
+        CUDA::OpenCL
 )
 
 # If we are not building with ROS then we need to manually link to its headers
@@ -87,7 +88,7 @@ endif()
 list(APPEND library_source_files
         src/sim/Simulator.cpp
         src/state/State.cpp
-        #src/state/StateHelper.cpp
+        src/state/StateHelper.cpp
         src/state/Propagator.cpp
         src/core/VioManager.cpp
         src/update/UpdaterHelper.cpp
@@ -175,8 +176,20 @@ if (ILLIXR_INTEGRATION)
     add_library(slam2 SHARED src/slam2.cpp)
     target_link_libraries(slam2 ov_msckf_lib ${thirdparty_libraries})
 else()
+    # Add illixr_msckf as a library
+    add_library(illixr_msckf src/run_illixr_msckf.cpp)
+    target_link_libraries(illixr_msckf ov_msckf_lib)
+    target_link_libraries(illixr_msckf ${thirdparty_libraries})
+
+    # Add non-heterocc executable
     add_executable(run_illixr_msckf src/run_illixr_msckf.cpp)
-    target_link_libraries(run_illixr_msckf ov_msckf_lib ${thirdparty_libraries} $<TARGET_OBJECTS:HETERO_OBJS>)
-    target_link_libraries(run_illixr_msckf PRIVATE CUDA::OpenCL)
-    add_dependencies(run_illixr_msckf HETERO_DEP)
+    target_link_libraries(run_illixr_msckf ov_msckf_lib ${thirdparty_libraries})
+    #target_link_libraries(run_illixr_msckf ov_msckf_lib ${thirdparty_libraries} $<TARGET_OBJECTS:HETERO_OBJS>)
+    #target_link_libraries(run_illixr_msckf PRIVATE CUDA::OpenCL)
+    #add_dependencies(run_illixr_msckf HETERO_DEP)
+
+    # Add heterocc executable
+    add_executable(run_illixr_msckf_heterocc  /dev/null)
+    target_link_libraries(run_illixr_msckf_heterocc illixr_msckf ov_msckf_lib)
+    target_link_libraries(run_illixr_msckf ${thirdparty_libraries})
 endif()
