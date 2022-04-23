@@ -63,6 +63,7 @@ include_directories(
         ${EIGEN3_INCLUDE_DIR}
         ${Boost_INCLUDE_DIRS}
         ${catkin_INCLUDE_DIRS}
+        ${OpenCV_INCLUDE_DIRS}
 )
 
 # Set link libraries used by all binaries
@@ -122,50 +123,68 @@ list(APPEND HPVM_INCLUDE
 )
 list(TRANSFORM HPVM_INCLUDE PREPEND -I)
 
-function(hetero_compile_obj source_files obj_files)
-  foreach(src obj IN ZIP_LISTS source_files obj_files)
+function(hetero_compile_obj source_files hetero_obj)
+  # First compile to hetero-cc LLs
+  foreach(src ${source_files})
       get_filename_component(src_name ${src} NAME)
-      MESSAGE(INFO Compile as Hetero-cc: ${src_name})
+      MESSAGE(STATUS "Compile as Hetero-cc: ${src_name}")
       add_custom_command(
-        OUTPUT ${obj}
+        OUTPUT ${src_name}.hetero.ll
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
         #COMMAND clang++-10 -fPIC -c ${src} ${MSCKF_INCLUDES}
-        COMMAND ${HPVM_BUILD}/bin/clang++ -O1 ${HPVM_INCLUDE} ${MSCKF_INCLUDES} -DDEVICE=CPU_TARGET -emit-llvm -S ${src} -o ${src_name}.hetero.ll
-        COMMAND ${HPVM_BUILD}/bin/hcc -declsfile ${HPVM_DECLS_FILE} -sanitise-funcs -S ${src_name}.hetero.ll -o ${src_name}.ll
-        COMMAND ${HPVM_BUILD}/bin/opt -enable-new-pm=0 -load HPVMGenHPVM.so -genhpvm -globaldce -S ${src_name}.ll -o ${src_name}.hpvm.ll
-        COMMAND ${HPVM_BUILD}/bin/opt -enable-new-pm=0 -load HPVMBuildDFG.so -load HPVMLocalMem.so -load HPVMDFG2LLVM_CPU.so -load HPVMClearDFG.so -buildDFG -localmem -dfg2llvm-cpu -clearDFG -S ${src_name}.hpvm.ll -o ${src_name}.hpvm.ll
-        COMMAND ${HPVM_BUILD}/bin/llvm-link ${src_name}.hpvm.ll /host_dir/hpvm/hpvm/build/tools/hpvm/projects/hpvm-rt/hpvm-rt.bc -S -o ${src_name}.linked.bc
-        COMMAND ${HPVM_BUILD}/bin/clang++ -c ${src_name}.linked.bc -o ${obj} -fPIC -lpthread -l:libtensor_runtime.so -l:libOpenCL.so
-        #COMMAND ${HPVM_BUILD}/bin/clang++ -c ${src_name}.linked.bc -o ${obj} -fPIC -L/host_dir/hpvm/hpvm/build/lib -Wl,-rpath=/host_dir/hpvm/hpvm/build/lib -L/usr/local/cuda/lib64 -Wl,-rpath=/usr/local/cuda/lib64 -lpthread -l:libtensor_runtime.so -l:libOpenCL.so
+        COMMAND ${HPVM_BUILD}/bin/clang++ -O1 ${HPVM_INCLUDE} ${MSCKF_INCLUDES} -std=c++17 -DDEVICE=CPU_TARGET -emit-llvm -S ${src} -o ${src_name}.hetero.ll
         DEPENDS ${src}
         )
+      list(APPEND hetero_ll_files ${src_name}.hetero.ll)
   endforeach()
+
+  # Link heterocc ll modules together
+  set(combined_name hetero_combined)
+  add_custom_command(
+      OUTPUT ${combined_name}.hetero.ll
+      WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+      COMMAND ${HPVM_BUILD}/bin/llvm-link ${hetero_ll_files} -o ${combined_name}.hetero.ll
+      DEPENDS ${hetero_ll_files}
+    )
+
+  # Then lower to hpvm-c -> lower to llvm host -> lower to object code
+  add_custom_command(
+    OUTPUT ${hetero_obj}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    COMMAND ${HPVM_BUILD}/bin/hcc -declsfile ${HPVM_DECLS_FILE} -sanitise-funcs -S ${combined_name}.hetero.ll -o ${combined_name}.ll
+    COMMAND ${HPVM_BUILD}/bin/opt -enable-new-pm=0 -load HPVMGenHPVM.so -genhpvm -globaldce -S ${combined_name}.ll -o ${combined_name}.hpvm.ll
+    COMMAND ${HPVM_BUILD}/bin/opt -enable-new-pm=0 -load HPVMBuildDFG.so -load HPVMLocalMem.so -load HPVMDFG2LLVM_CPU.so -load HPVMClearDFG.so -buildDFG -localmem -dfg2llvm-cpu -clearDFG -S ${combined_name}.hpvm.ll -o ${combined_name}.hpvm.ll
+    COMMAND ${HPVM_BUILD}/bin/llvm-link /host_dir/hpvm/hpvm/build/tools/hpvm/projects/hpvm-rt/hpvm-rt.bc -S ${combined_name}.hpvm.ll -o ${combined_name}.linked.bc
+    COMMAND ${HPVM_BUILD}/bin/clang++ -c ${combined_name}.linked.bc -o ${hetero_obj} -fPIC
+    ##COMMAND ${HPVM_BUILD}/bin/clang++ -c ${src_name}.linked.bc -o ${hetero_obj} -fPIC -L/host_dir/hpvm/hpvm/build/lib -Wl,-rpath=/host_dir/hpvm/hpvm/build/lib -L/usr/local/cuda/lib64 -Wl,-rpath=/usr/local/cuda/lib64 -lpthread -l:libtensor_runtime.so -l:libOpenCL.so
+    DEPENDS ${combined_name}.hetero.ll
+    )
 endfunction()
 
 
 ##################################################
 # Make hetero-cc objects
 ##################################################
-list(APPEND hetero_source_files
-        /src/state/StateHelper_hetero.cpp
+list(APPEND hetero_source_files # everything involved from __hpvm__init
+    state/StateHelper_hetero.cpp
+    core/VioManager.cpp
+    state/Propagator.cpp
+    run_illixr_msckf.cpp
 )
-list(TRANSFORM hetero_source_files PREPEND ${CMAKE_CURRENT_SOURCE_DIR})
+list(TRANSFORM hetero_source_files PREPEND ${CMAKE_CURRENT_SOURCE_DIR}/src/)
 
-list(APPEND hetero_obj_files
-        /StateHelper_hetero.o
-)
-list(TRANSFORM hetero_obj_files PREPEND ${CMAKE_CURRENT_BINARY_DIR})
+set(hetero_obj ${CMAKE_CURRENT_BINARY_DIR}/hetero_archive.o)
 
 get_target_property(MSCKF_INCLUDES ov_msckf_lib INCLUDE_DIRECTORIES)
 list(TRANSFORM MSCKF_INCLUDES PREPEND -I)
 
-hetero_compile_obj(${hetero_source_files} ${hetero_obj_files})
+hetero_compile_obj("${hetero_source_files}" ${hetero_obj})
 
-add_library(HETERO_DEP OBJECT ${hetero_obj_files}) # dummy dependence lib
+add_library(HETERO_DEP OBJECT ${hetero_obj}) # dummy dependence lib
 
-add_library(HETERO_OBJS OBJECT IMPORTED DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/StateHelper_hetero.o)
+add_library(HETERO_OBJS OBJECT IMPORTED DEPENDS ${hetero_obj})
 set_property(TARGET HETERO_OBJS PROPERTY 
-    IMPORTED_OBJECTS ${CMAKE_CURRENT_BINARY_DIR}/StateHelper_hetero.o
+    IMPORTED_OBJECTS ${hetero_obj}
 )
 
 ##################################################
@@ -177,19 +196,18 @@ if (ILLIXR_INTEGRATION)
     target_link_libraries(slam2 ov_msckf_lib ${thirdparty_libraries})
 else()
     # Add illixr_msckf as a library
-    add_library(illixr_msckf src/run_illixr_msckf.cpp)
+    add_library(illixr_msckf STATIC src/run_illixr_msckf.cpp)
     target_link_libraries(illixr_msckf ov_msckf_lib)
     target_link_libraries(illixr_msckf ${thirdparty_libraries})
 
     # Add non-heterocc executable
     add_executable(run_illixr_msckf src/run_illixr_msckf.cpp)
     target_link_libraries(run_illixr_msckf ov_msckf_lib ${thirdparty_libraries})
-    #target_link_libraries(run_illixr_msckf ov_msckf_lib ${thirdparty_libraries} $<TARGET_OBJECTS:HETERO_OBJS>)
-    #target_link_libraries(run_illixr_msckf PRIVATE CUDA::OpenCL)
-    #add_dependencies(run_illixr_msckf HETERO_DEP)
 
     # Add heterocc executable
     add_executable(run_illixr_msckf_heterocc  /dev/null)
+    target_link_libraries(run_illixr_msckf_heterocc $<TARGET_OBJECTS:HETERO_OBJS>) # User objects has highest priority for symbols
     target_link_libraries(run_illixr_msckf_heterocc illixr_msckf ov_msckf_lib)
-    target_link_libraries(run_illixr_msckf ${thirdparty_libraries})
+    target_link_libraries(run_illixr_msckf_heterocc ${thirdparty_libraries})
+    add_dependencies(run_illixr_msckf_heterocc HETERO_DEP)
 endif()
