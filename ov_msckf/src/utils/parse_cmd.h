@@ -155,11 +155,11 @@ namespace ov_msckf {
         // CMD PARSE ==============================================================================
 
         // Finally actually parse the command line and load it
-        try {
+        //try {
             app1.parse(argc, argv);
-        } catch (const CLI::ParseError &e) {
-            std::exit(app1.exit(e));
-        }
+        //} catch (const CLI::ParseError &e) {
+            //std::exit(app1.exit(e));
+        //}
 
         // Set what representation we should be using
         std::transform(feat_rep_msckf_str.begin(), feat_rep_msckf_str.end(),feat_rep_msckf_str.begin(), ::toupper);
@@ -219,11 +219,11 @@ namespace ov_msckf {
         }
 
         // Finally actually parse the command line and load it
-        try {
+        //try {
             app2.parse(argc, argv);
-        } catch (const CLI::ParseError &e) {
-            std::exit(app2.exit(e));
-        }
+        //} catch (const CLI::ParseError &e) {
+            //std::exit(app2.exit(e));
+        //}
 
         // Finally load it into our params
         for(int i=0; i<params.state_options.num_cameras; i++) {

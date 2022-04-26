@@ -111,6 +111,7 @@ target_include_directories(ov_msckf_lib PUBLIC src)
 ##################################################
 set(HPVM_DECLS_FILE /host_dir/hpvm/hpvm/build/tools/hpvm/projects/hetero-c++/lib/HPVMCFunctionDeclarations/HPVMCFunctionDeclarations.bc)
 set(HPVM_BUILD /host_dir/hpvm/hpvm/build/)
+#set(HPVM_BUILD /host_dir/hpvm/hpvm/build_debug/)
 list(APPEND HPVM_INCLUDE
     ${HPVM_BUILD}/include
     ${HPVM_BUILD}/tools/hpvm
@@ -132,7 +133,7 @@ function(hetero_compile_obj source_files hetero_obj)
         OUTPUT ${src_name}.hetero.ll
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
         #COMMAND clang++-10 -fPIC -c ${src} ${MSCKF_INCLUDES}
-        COMMAND ${HPVM_BUILD}/bin/clang++ -O1 ${HPVM_INCLUDE} ${MSCKF_INCLUDES} -std=c++17 -DDEVICE=CPU_TARGET -emit-llvm -S ${src} -o ${src_name}.hetero.ll
+        COMMAND ${HPVM_BUILD}/bin/clang++ -O1 ${HPVM_INCLUDE} ${MSCKF_INCLUDES} -std=c++17 -DDEVICE=CPU_TARGET -emit-llvm -fno-exceptions -S ${src} -o ${src_name}.hetero.ll
         DEPENDS ${src}
         )
       list(APPEND hetero_ll_files ${src_name}.hetero.ll)
@@ -143,7 +144,7 @@ function(hetero_compile_obj source_files hetero_obj)
   add_custom_command(
       OUTPUT ${combined_name}.hetero.ll
       WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-      COMMAND ${HPVM_BUILD}/bin/llvm-link ${hetero_ll_files} -o ${combined_name}.hetero.ll
+      COMMAND ${HPVM_BUILD}/bin/llvm-link -S ${hetero_ll_files} -o ${combined_name}.hetero.ll
       DEPENDS ${hetero_ll_files}
     )
 
@@ -152,11 +153,10 @@ function(hetero_compile_obj source_files hetero_obj)
     OUTPUT ${hetero_obj}
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     COMMAND ${HPVM_BUILD}/bin/hcc -declsfile ${HPVM_DECLS_FILE} -sanitise-funcs -S ${combined_name}.hetero.ll -o ${combined_name}.ll
-    COMMAND ${HPVM_BUILD}/bin/opt -enable-new-pm=0 -load HPVMGenHPVM.so -genhpvm -globaldce -S ${combined_name}.ll -o ${combined_name}.hpvm.ll
+    COMMAND ${HPVM_BUILD}/bin/opt -enable-new-pm=0 -load HPVMGenHPVM.so -genhpvm -globaldce -S ${combined_name}.ll -o ${combined_name}.hpvm.ll -dot-callgraph
     COMMAND ${HPVM_BUILD}/bin/opt -enable-new-pm=0 -load HPVMBuildDFG.so -load HPVMLocalMem.so -load HPVMDFG2LLVM_CPU.so -load HPVMClearDFG.so -buildDFG -localmem -dfg2llvm-cpu -clearDFG -S ${combined_name}.hpvm.ll -o ${combined_name}.hpvm.ll
-    COMMAND ${HPVM_BUILD}/bin/llvm-link /host_dir/hpvm/hpvm/build/tools/hpvm/projects/hpvm-rt/hpvm-rt.bc -S ${combined_name}.hpvm.ll -o ${combined_name}.linked.bc
+    COMMAND ${HPVM_BUILD}/bin/llvm-link ${HPVM_BUILD}/tools/hpvm/projects/hpvm-rt/hpvm-rt.bc -S ${combined_name}.hpvm.ll -o ${combined_name}.linked.bc
     COMMAND ${HPVM_BUILD}/bin/clang++ -c ${combined_name}.linked.bc -o ${hetero_obj} -fPIC
-    ##COMMAND ${HPVM_BUILD}/bin/clang++ -c ${src_name}.linked.bc -o ${hetero_obj} -fPIC -L/host_dir/hpvm/hpvm/build/lib -Wl,-rpath=/host_dir/hpvm/hpvm/build/lib -L/usr/local/cuda/lib64 -Wl,-rpath=/usr/local/cuda/lib64 -lpthread -l:libtensor_runtime.so -l:libOpenCL.so
     DEPENDS ${combined_name}.hetero.ll
     )
 endfunction()
@@ -167,9 +167,11 @@ endfunction()
 ##################################################
 list(APPEND hetero_source_files # everything involved from __hpvm__init
     state/StateHelper_hetero.cpp
+    update/UpdaterSLAM.cpp
+    update/UpdaterMSCKF.cpp
     core/VioManager.cpp
     state/Propagator.cpp
-    run_illixr_msckf.cpp
+    run_illixr_msckf_hetero.cpp
 )
 list(TRANSFORM hetero_source_files PREPEND ${CMAKE_CURRENT_SOURCE_DIR}/src/)
 

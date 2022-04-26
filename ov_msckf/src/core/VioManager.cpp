@@ -18,10 +18,22 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+// Using -fno-exceptions require we provide boost:throw_exception ourselves
+#include <cstdlib>
+#include <iostream>
+#define BOOST_NO_EXCEPTIONS
+namespace boost{
+  void throw_exception(std::exception const &e){
+    std::cerr<<"Exception: " << e.what();
+    std::exit(-1);
+  }
+}
+
 #include "VioManager.h"
+
 #include "types/Landmark.h"
 
-#include "utils/parse_cmd.h"
+//#include "utils/parse_cmd.h"
 
 #ifdef ILLIXR_INTEGRATION
 #include "../common/cpu_timer.hpp"
