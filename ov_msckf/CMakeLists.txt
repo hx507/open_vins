@@ -133,7 +133,7 @@ function(hetero_compile_obj source_files hetero_obj)
         OUTPUT ${src_name}.hetero.ll
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
         #COMMAND clang++-10 -fPIC -c ${src} ${MSCKF_INCLUDES}
-        COMMAND ${HPVM_BUILD}/bin/clang++ -O1 ${HPVM_INCLUDE} ${MSCKF_INCLUDES} -std=c++17 -DDEVICE=CPU_TARGET -emit-llvm -fno-exceptions -S ${src} -o ${src_name}.hetero.ll
+        COMMAND ${HPVM_BUILD}/bin/clang++ -O1 ${HPVM_INCLUDE} ${MSCKF_INCLUDES} -std=c++17 -DDEVICE=CPU_TARGET -emit-llvm -fno-exceptions -Xclang -disable-lifetime-markers -S ${src} -o ${src_name}.hetero.ll
         DEPENDS ${src}
         )
       list(APPEND hetero_ll_files ${src_name}.hetero.ll)
