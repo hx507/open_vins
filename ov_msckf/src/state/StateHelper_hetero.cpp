@@ -20,34 +20,11 @@
  */
 #include "StateHelper.h"
 #include "heterocc.h"
+#include <cstring>
+#include <memory>
 
 using namespace ov_core;
 using namespace ov_msckf;
-
-// void dummy()
-//{
-// size_t dummy_size = 100;
-// int* dummy_mem = new int[dummy_size];
-// void* DFG = __hetero_launch_begin(1, dummy_mem, dummy_size,
-// 1, dummy_mem, dummy_size);
-// void* Section = __hetero_section_begin();
-
-// void* Wrapper = __hetero_task_begin(1, dummy_mem, dummy_size,
-// 1, dummy_mem, dummy_size, "stencil_wrapper_task");
-// void* Section_Wrapped = __hetero_section_begin();
-
-// for (size_t c = 0; c < 100; c++) {
-//__hetero_parallel_loop(1, 1, dummy_mem, dummy_size,
-// 1, dummy_mem, dummy_size, "stencil_parallel_loop");
-////__hpvm__hint(hpvm::DEVICE);
-////__hpvm__hint(hpvm::GPU_TARGET);
-// dummy_mem[c] = c;
-//}
-//__hetero_section_end(Section_Wrapped);
-//__hetero_task_end(Wrapper);
-//__hetero_section_end(Section);
-//__hetero_launch_end(DFG);
-//}
 
 void StateHelper::EKFUpdate(State* state, const std::vector<Type*>& H_order, const Eigen::MatrixXd& H,
     const Eigen::VectorXd& res, const Eigen::MatrixXd& R)
@@ -68,35 +45,33 @@ void StateHelper::EKFUpdate(State* state, const std::vector<Type*>& H_order, con
         current_it += meas_var->size();
     }
 
+    // Prepare data to be copied into graph
+    std::vector<int> state_var_sizes_gather;
+    std::vector<int> state_var_ids_gather;
+    for (Type* var : state->_variables) {
+        state_var_sizes_gather.push_back(var->size());
+        state_var_ids_gather.push_back(var->id());
+    }
+    auto* state_var_sizes = state_var_sizes_gather.data();
+    auto* state_var_ids = state_var_ids_gather.data();
+
+    size_t n_state_var = state->_variables.size();
+    size_t n_res_rows = res.rows();
+
     void* DFG = __hetero_launch_begin(
-        6,
-        state, sizeof(*state),
-        &res, sizeof(res),
-        &H_order, sizeof(H_order),
-        &H_id, sizeof(H_id),
-        &H, sizeof(H),
-        &M_a, sizeof(M_a),
-        1, &M_a, sizeof(M_a));
+        1,
+        &state_var_sizes, sizeof(int),
+        1, &state_var_sizes, sizeof(int));
 
     void* Section = __hetero_section_begin();
     void* Wrapper = __hetero_task_begin(
-        6,
-        state, sizeof(*state),
-        &res, sizeof(res),
-        &H_order, sizeof(H_order),
-        &H_id, sizeof(H_id),
-        &H, sizeof(H),
-        &M_a, sizeof(M_a),
-        1, &M_a, sizeof(M_a));
+        1,
+        &state_var_sizes, sizeof(int),
+        1, &state_var_sizes, sizeof(int));
 
-    Type* var = state->_variables[0];
-    Eigen::MatrixXd M_i = Eigen::MatrixXd::Zero(var->size(), res.rows());
-    for (size_t i = 0; i < 10; i++) {
-        Type* meas_var = H_order[i];
-         M_i.noalias() += state->_Cov.block(var->id(), meas_var->id(), var->size(), meas_var->size()) * H.block(0, H_id[i], H.rows(), meas_var->size()).transpose();
-    }
+    int x = 0;
 
-    __hetero_task_end(Wrapper);
+        __hetero_task_end(Wrapper);
     __hetero_section_end(Section);
     __hetero_launch_end(DFG);
     return;
