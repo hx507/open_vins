@@ -58,25 +58,24 @@ void StateHelper::EKFUpdate(State* state, const std::vector<Type*>& H_order, con
     size_t n_state_var = state->_variables.size();
     size_t n_res_rows = res.rows();
 
-    void* DFG = __hetero_launch_begin(
-        1,
-        &state_var_sizes, sizeof(int),
-        1, &state_var_sizes, sizeof(int));
+    // void* DFG = __hetero_launch_begin(
+    //     1,
+    //     &state_var_sizes, sizeof(int),
+    //     1, &state_var_sizes, sizeof(int));
 
-    void* Section = __hetero_section_begin();
-    void* Wrapper = __hetero_task_begin(
-        1,
-        &state_var_sizes, sizeof(int),
-        1, &state_var_sizes, sizeof(int));
+    // void* Section = __hetero_section_begin();
+    // void* Wrapper = __hetero_task_begin(
+    //     1,
+    //     &state_var_sizes, sizeof(int),
+    //     1, &state_var_sizes, sizeof(int));
 
-    int x = 0;
+    // int x = 0;
 
-        __hetero_task_end(Wrapper);
-    __hetero_section_end(Section);
-    __hetero_launch_end(DFG);
-    return;
+    //     __hetero_task_end(Wrapper);
+    // __hetero_section_end(Section);
+    // __hetero_launch_end(DFG);
+    // return;
 
-    /*
     //==========================================================
     //==========================================================
     // For each active variable find its M = P*H^T
@@ -131,5 +130,4 @@ void StateHelper::EKFUpdate(State* state, const std::vector<Type*>& H_order, con
     for (size_t i = 0; i < state->_variables.size(); i++) {
         state->_variables.at(i)->update(dx.block(state->_variables.at(i)->id(), 0, state->_variables.at(i)->size(), 1));
     }
-    */
 }

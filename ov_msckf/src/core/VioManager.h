@@ -214,10 +214,6 @@ namespace ov_msckf {
         }
 
 
-
-    protected:
-
-
         /**
          * @brief This function will try to initialize the state.
          *
