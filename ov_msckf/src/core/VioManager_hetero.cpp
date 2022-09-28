@@ -146,43 +146,512 @@ VioManager::VioManager(VioManagerOptions& params_) {
 }
 
 
-void VioManager::feed_measurement_imu(double timestamp, Eigen::Vector3d wm, Eigen::Vector3d am) {
+void feed_measurement_imu_helper(double timestamp, 
+                                    Eigen::Vector3d* wm, size_t wm_size,
+                                    Eigen::Vector3d* am, size_t am_size,
+                                    Propagator* propagator, size_t propagator_size,
+                                    InertialInitializer* initializer, size_t initializer_size,
+                                    VioManager* obj, size_t obj_size) {
+
+    void *section = __hetero_section_begin();
+    void *t1 = __hetero_task_begin(4, 
+                                    timestamp,
+                                    wm, wm_size,
+                                    am, am_size,
+                                    propagator, propagator_size, 1,
+                                    propagator, propagator_size, "feed_measurement_imu_t1");
 
     // Push back to our propagator
-    propagator->feed_imu(timestamp,wm,am);
+    propagator->feed_imu(timestamp, *wm, *am);
+
+    __hetero_task_end(t1);
+    void *t2 = __hetero_task_begin(5, 
+                                    timestamp,
+                                    wm, wm_size,
+                                    am, am_size,
+                                    initializer, initializer_size, 
+                                    obj, obj_size, 1,
+                                    initializer, initializer_size, "feed_measurement_imu_t2");
+
 
     // Push back to our initializer
-    if(!is_initialized_vio) {
-        initializer->feed_imu(timestamp, wm, am);
+    if(!obj->is_initialized_vio) {
+        initializer->feed_imu(timestamp, *wm, *am);
     }
 
+    __hetero_task_end(t2);
+    __hetero_section_end(section);
+}
+
+void VioManager::feed_measurement_imu(double timestamp, Eigen::Vector3d wm, Eigen::Vector3d am)
+{
+    Eigen::Vector3d *wm_ptr = &wm;
+    Eigen::Vector3d *am_ptr = &am;
+    Propagator *prop_ptr = propagator;
+    InertialInitializer *init_ptr = initializer;
+    VioManager *obj = this;
+    void *launch = __hetero_launch((void *) feed_measurement_imu_helper, 6, 
+                                        timestamp, 
+                                        wm_ptr, wm.size(),
+                                        am_ptr, am.size(),
+                                        prop_ptr, sizeof(Propagator),
+                                        init_ptr, sizeof(InertialInitializer),
+                                        obj, sizeof(VioManager), 5,
+                                        wm_ptr, wm.size(),
+                                        am_ptr, am.size(),
+                                        prop_ptr, sizeof(Propagator),
+                                        init_ptr, sizeof(InertialInitializer),
+                                        obj, sizeof(VioManager));
+
+    
+    __hetero_wait(launch);
+
+    propagator = prop_ptr;
+    initializer = init_ptr;
 }
 
 
-void VioManager::feed_measurement_monocular(double timestamp, cv::Mat& img0, size_t cam_id) {
+void feed_measurement_monocular_helper(double timestamp,
+                                    cv::Mat* img0_ptr, size_t img0_size,
+                                    size_t cam_id,
+                                    VioManager* obj, size_t obj_size) {
+    void *section = __hetero_section_begin();
+    void *t1 = __hetero_task_begin(4, 
+                                    timestamp, 
+                                    img0_ptr, img0_size, 
+                                    cam_id, 
+                                    obj, obj_size, 2,
+                                    img0_ptr, img0_size, 
+                                    obj, obj_size, "feed_measurement_monocular_t1");
+
 
     // Start timing
-    rT1 =  boost::posix_time::microsec_clock::local_time();
+    obj->rT1 =  boost::posix_time::microsec_clock::local_time();
 
     // Feed our trackers
-    trackFEATS->feed_monocular(timestamp, img0, cam_id);
+    obj->trackFEATS->feed_monocular(timestamp, *img0_ptr, cam_id);
+
+    __hetero_task_end(t1);
+    void *t2 = __hetero_task_begin(4, 
+                                    timestamp, 
+                                    img0_ptr, img0_size, 
+                                    cam_id, 
+                                    obj, obj_size, 2,
+                                    img0_ptr, img0_size, 
+                                    obj, obj_size, "feed_measurement_monocular_t2");
 
     // If aruoc is avalible, the also pass to it
-    if(trackARUCO != nullptr) {
-        trackARUCO->feed_monocular(timestamp, img0, cam_id);
+    if(obj->trackARUCO != nullptr) {
+        obj->trackARUCO->feed_monocular(timestamp, *img0_ptr, cam_id);
     }
-    rT2 =  boost::posix_time::microsec_clock::local_time();
+    obj->rT2 =  boost::posix_time::microsec_clock::local_time();
+
+    __hetero_task_end(t2);
 
     // If we do not have VIO initialization, then try to initialize
     // TODO: Or if we are trying to reset the system, then do that here!
-    if(!is_initialized_vio) {
-        is_initialized_vio = try_to_initialize();
-        if(!is_initialized_vio) return;
+    void *t3 = __hetero_task_begin(1,
+                                    obj, obj_size, 1,
+                                    obj, obj_size, "feed_measurement_monocular_t3");
+    if(!obj->is_initialized_vio) {
+        obj->is_initialized_vio = obj->try_to_initialize();
     }
+    __hetero_task_end(t3);
+
+    void *t4 = __hetero_task_begin(2,
+                                    timestamp, 
+                                    obj, obj_size, 1,
+                                    obj, obj_size,
+                                    "feed_measurement_monocular_t4");
 
     // Call on our propagate and update function
-    do_feature_propagate_update(timestamp);
+    if(obj->is_initialized_vio)
+        obj->do_feature_propagate_update(timestamp);
 
+    __hetero_task_end(t4);
+    __hetero_section_end(section);
+
+
+}
+
+void VioManager::feed_measurement_monocular(double timestamp, cv::Mat& img0, size_t cam_id) {
+    cv::Mat *img0_ptr = &img0;
+    VioManager *obj = this;
+    void *launch = __hetero_launch((void *) feed_measurement_monocular_helper, 4, 
+                                        timestamp, 
+                                        img0_ptr, sizeof(img0_ptr), 
+                                        cam_id, 
+                                        obj, sizeof(VioManager), 2,
+                                        img0_ptr, sizeof(img0_ptr), 
+                                        obj, sizeof(VioManager));
+
+    
+    __hetero_wait(launch);
+}
+
+void do_feature_propagate_update(double timestamp,
+                                VioManager *obj, size_t obj_size,
+                                bool *check, size_t check_size) {
+
+
+    //===================================================================================
+    // State propagation, and clone augmentation
+    //===================================================================================
+
+    void *section = __hetero_section_begin();
+    void *t1 = __hetero_task_begin(3,
+                                    timestamp,
+                                    obj, obj_size,
+                                    check, check_size,
+                                    2,
+                                    check, check_size,
+                                    obj, obj_size, "task1");
+
+    // Return if the camera measurement is out of order
+    //inverted if for hetero parallelization
+    if(obj->is_initialized_vio && !(obj->state->_timestamp >= timestamp)) {
+        // Propagate the state forward to the current update time
+        // Also augment it with a new clone!
+        obj->propagator->propagate_and_clone(obj->state, timestamp);
+        obj->rT3 =  boost::posix_time::microsec_clock::local_time();
+        // printf(YELLOW "image received out of order (prop dt = %3f)\n" RESET,(timestamp-obj->state->_timestamp));
+        // return;
+    }
+    
+    *check = ((int)obj->state->_clones_IMU.size() < std::min(obj->state->_options.max_clone_size,5)) || (obj->state->_timestamp != timestamp) || !(obj->is_initialized_vio);
+
+    // If we have not reached max clones, we should just return...
+    // This isn't super ideal, but it keeps the logic after this easier...
+    // We can start processing things when we have at least 5 clones since we can start triangulating things...
+    // if((int)obj->state->_clones_IMU.size() < std::min(obj->state->_options.max_clone_size,5)) {
+	// 	printf("waiting for enough clone states (%d of %d)....\n",(int)obj->state->_clones_IMU.size(),std::min(obj->state->_options.max_clone_size,5));
+    //     return;
+    // }
+
+    // Return if we where unable to propagate
+    // if(obj->state->_timestamp != timestamp) {
+	// 	printf(RED "[PROP]: Propagator unable to propagate the state forward in time!\n" RESET);
+	// 	printf(RED "[PROP]: It has been %.3f since last time we propagated\n" RESET,timestamp-obj->state->_timestamp);
+    //     return;
+    // }
+
+    __hetero_task_end(t1);
+
+    //===================================================================================
+    // MSCKF features and KLT tracks that are SLAM features
+    //===================================================================================
+
+    void *t2 = __hetero_task_begin(3,
+                                    timestamp,
+                                    obj, obj_size,
+                                    check, check_size,
+                                    2,
+                                    check, check_size,
+                                    obj, obj_size, "task2");
+
+if(!(*check))
+{
+
+    // Now, lets get all features that should be used for an update that are lost in the newest frame
+    std::vector<Feature*> feats_lost, feats_marg, feats_slam;
+    feats_lost = obj->trackFEATS->get_feature_database()->features_not_containing_newer(obj->state->_timestamp);
+
+    // Don't need to get the oldest features untill we reach our max number of clones
+    if((int)obj->state->_clones_IMU.size() > obj->state->_options.max_clone_size) {
+        feats_marg = obj->trackFEATS->get_feature_database()->features_containing(obj->state->margtimestep());
+        if(obj->trackARUCO != nullptr && timestamp-obj->startup_time >= obj->params.dt_slam_delay) {
+            feats_slam = obj->trackARUCO->get_feature_database()->features_containing(obj->state->margtimestep());
+        }
+    }
+
+    // We also need to make sure that the max tracks does not contain any lost features
+    // This could happen if the feature was lost in the last frame, but has a measurement at the marg timestep
+    auto it1 = feats_lost.begin();
+    while(it1 != feats_lost.end()) {
+        if(std::find(feats_marg.begin(),feats_marg.end(),(*it1)) != feats_marg.end()) {
+            //printf(YELLOW "FOUND FEATURE THAT WAS IN BOTH feats_lost and feats_marg!!!!!!\n" RESET);
+            it1 = feats_lost.erase(it1);
+        } else {
+            it1++;
+        }
+    }
+
+    // Find tracks that have reached max length, these can be made into SLAM features
+    std::vector<Feature*> feats_maxtracks;
+    auto it2 = feats_marg.begin();
+    while(it2 != feats_marg.end()) {
+        // See if any of our camera's reached max track
+        bool reached_max = false;
+        for (const auto &cams: (*it2)->timestamps) {
+            if ((int)cams.second.size() > obj->state->_options.max_clone_size) {
+                reached_max = true;
+                break;
+            }
+        }
+        // If max track, then add it to our possible slam feature list
+        if(reached_max) {
+            feats_maxtracks.push_back(*it2);
+            it2 = feats_marg.erase(it2);
+        } else {
+            it2++;
+        }
+    }
+
+    // Count how many aruco tags we have in our state
+    int curr_aruco_tags = 0;
+    auto it0 = obj->state->_features_SLAM.begin();
+    while(it0 != obj->state->_features_SLAM.end()) {
+        if ((int) (*it0).second->_featid <= obj->state->_options.max_aruco_features) curr_aruco_tags++;
+        it0++;
+    }
+
+    // Append a new SLAM feature if we have the room to do so
+    // Also check that we have waited our delay amount (normally prevents bad first set of slam points)
+    if(obj->state->_options.max_slam_features > 0 && timestamp-obj->startup_time >= obj->params.dt_slam_delay && (int)obj->state->_features_SLAM.size() < obj->state->_options.max_slam_features+curr_aruco_tags) {
+        // Get the total amount to add, then the max amount that we can add given our marginalize feature array
+        int amount_to_add = (obj->state->_options.max_slam_features+curr_aruco_tags)-(int)obj->state->_features_SLAM.size();
+        int valid_amount = (amount_to_add > (int)feats_maxtracks.size())? (int)feats_maxtracks.size() : amount_to_add;
+        // If we have at least 1 that we can add, lets add it!
+        // Note: we remove them from the feat_marg array since we don't want to reuse information...
+        if(valid_amount > 0) {
+            feats_slam.insert(feats_slam.end(), feats_maxtracks.end()-valid_amount, feats_maxtracks.end());
+            feats_maxtracks.erase(feats_maxtracks.end()-valid_amount, feats_maxtracks.end());
+        }
+    }
+    
+    // Loop through current SLAM features, we have tracks of them, grab them for this update!
+    // Note: if we have a slam feature that has lost tracking, then we should marginalize it out
+    // Note: if you do not use FEJ, these types of slam features *degrade* the estimator performance....
+    for (std::pair<const size_t, Landmark*> &landmark : obj->state->_features_SLAM) {
+        if(obj->trackARUCO != nullptr) {
+            Feature* feat1 = obj->trackARUCO->get_feature_database()->get_feature(landmark.second->_featid);
+            if(feat1 != nullptr) feats_slam.push_back(feat1);
+        }
+        Feature* feat2 = obj->trackFEATS->get_feature_database()->get_feature(landmark.second->_featid);
+        if(feat2 != nullptr) feats_slam.push_back(feat2);
+        if(feat2 == nullptr) landmark.second->should_marg = true;
+    }
+
+    // Lets marginalize out all old SLAM features here
+    // These are ones that where not successfully tracked into the current frame
+    // We do *NOT* marginalize out our aruco tags
+    StateHelper::marginalize_slam(obj->state);
+
+    // Separate our SLAM features into new ones, and old ones
+    std::vector<Feature*> feats_slam_DELAYED, feats_slam_UPDATE;
+    for(size_t i=0; i<feats_slam.size(); i++) {
+        if(obj->state->_features_SLAM.find(feats_slam.at(i)->featid) != obj->state->_features_SLAM.end()) {
+            feats_slam_UPDATE.push_back(feats_slam.at(i));
+            //printf("[UPDATE-SLAM]: found old feature %d (%d measurements)\n",(int)feats_slam.at(i)->featid,(int)feats_slam.at(i)->timestamps_left.size());
+        } else {
+            feats_slam_DELAYED.push_back(feats_slam.at(i));
+            //printf("[UPDATE-SLAM]: new feature ready %d (%d measurements)\n",(int)feats_slam.at(i)->featid,(int)feats_slam.at(i)->timestamps_left.size());
+        }
+    }
+
+    // Concatenate our MSCKF feature arrays (i.e., ones not being used for slam updates)
+    std::vector<Feature*> featsup_MSCKF = feats_lost;
+    featsup_MSCKF.insert(featsup_MSCKF.end(), feats_marg.begin(), feats_marg.end());
+    featsup_MSCKF.insert(featsup_MSCKF.end(), feats_maxtracks.begin(), feats_maxtracks.end());
+
+
+    //===================================================================================
+    // Now that we have a list of features, lets do the EKF update for MSCKF and SLAM!
+    //===================================================================================
+
+
+    // Pass them to our MSCKF updater
+    // NOTE: if we have more then the max, we select the "best" ones (i.e. max tracks) for this update
+    // NOTE: this should only really be used if you want to track a lot of features, or have limited computational resources
+    if((int)featsup_MSCKF.size() > obj->state->_options.max_msckf_in_update)
+        featsup_MSCKF.erase(featsup_MSCKF.begin(), featsup_MSCKF.end()-obj->state->_options.max_msckf_in_update);
+    obj->updaterMSCKF->update(obj->state, featsup_MSCKF);
+    obj->rT4 =  boost::posix_time::microsec_clock::local_time();
+
+    // Perform SLAM delay init and update
+    // NOTE: that we provide the option here to do a *sequential* update
+    // NOTE: this will be a lot faster but won't be as accurate.
+    std::vector<Feature*> feats_slam_UPDATE_TEMP;
+    while(!feats_slam_UPDATE.empty()) {
+        // Get sub vector of the features we will update with
+        std::vector<Feature*> featsup_TEMP;
+        featsup_TEMP.insert(featsup_TEMP.begin(), feats_slam_UPDATE.begin(), feats_slam_UPDATE.begin()+std::min(obj->state->_options.max_slam_in_update,(int)feats_slam_UPDATE.size()));
+        feats_slam_UPDATE.erase(feats_slam_UPDATE.begin(), feats_slam_UPDATE.begin()+std::min(obj->state->_options.max_slam_in_update,(int)feats_slam_UPDATE.size()));
+        // Do the update
+        obj->updaterSLAM->update(obj->state, featsup_TEMP);
+        feats_slam_UPDATE_TEMP.insert(feats_slam_UPDATE_TEMP.end(), featsup_TEMP.begin(), featsup_TEMP.end());
+    }
+    feats_slam_UPDATE = feats_slam_UPDATE_TEMP;
+    obj->rT5 =  boost::posix_time::microsec_clock::local_time();
+    obj->updaterSLAM->delayed_init(obj->state, feats_slam_DELAYED);
+    obj->rT6 =  boost::posix_time::microsec_clock::local_time();
+
+
+    //===================================================================================
+    // Update our visualization feature set, and clean up the old features
+    //===================================================================================
+
+
+    // Save all the MSCKF features used in the update
+    obj->good_features_MSCKF.clear();
+    for(Feature* feat : featsup_MSCKF) {
+        obj->good_features_MSCKF.push_back(feat->p_FinG);
+        feat->to_delete = true;
+    }
+
+    // Remove features that where used for the update from our extractors at the last timestep
+    // This allows for measurements to be used in the future if they failed to be used this time
+    // Note we need to do this before we feed a new image, as we want all new measurements to NOT be deleted
+    obj->trackFEATS->get_feature_database()->cleanup();
+    if(obj->trackARUCO != nullptr) {
+        obj->trackARUCO->get_feature_database()->cleanup();
+    }
+
+    //===================================================================================
+    // Cleanup, marginalize out what we don't need any more...
+    //===================================================================================
+
+    // First do anchor change if we are about to lose an anchor pose
+    obj->updaterSLAM->change_anchors(obj->state);
+
+    // Marginalize the oldest clone of the state if we are at max length
+    if((int)obj->state->_clones_IMU.size() > obj->state->_options.max_clone_size) {
+        // Cleanup any features older then the marginalization time
+        obj->trackFEATS->get_feature_database()->cleanup_measurements(obj->state->margtimestep());
+        if(obj->trackARUCO != nullptr) {
+            obj->trackARUCO->get_feature_database()->cleanup_measurements(obj->state->margtimestep());
+        }
+        // Finally marginalize that clone
+        StateHelper::marginalize_old_clone(obj->state);
+    }
+
+    // Finally if we are optimizing our intrinsics, update our trackers
+    if(obj->state->_options.do_calib_camera_intrinsics) {
+        // Get vectors arrays
+        std::map<size_t, Eigen::VectorXd> cameranew_calib;
+        std::map<size_t, bool> cameranew_fisheye;
+        for(int i=0; i<obj->state->_options.num_cameras; i++) {
+            Vec* calib = obj->state->_cam_intrinsics.at(i);
+            bool isfish = obj->state->_cam_intrinsics_model.at(i);
+            cameranew_calib.insert({i,calib->value()});
+            cameranew_fisheye.insert({i,isfish});
+        }
+        // Update the trackers and their databases
+        obj->trackFEATS->set_calibration(cameranew_calib, cameranew_fisheye, true);
+        if(obj->trackARUCO != nullptr) {
+            obj->trackARUCO->set_calibration(cameranew_calib, cameranew_fisheye, true);
+        }
+    }
+    obj->rT7 =  boost::posix_time::microsec_clock::local_time();
+
+
+    //===================================================================================
+    // Debug info, and stats tracking
+    //===================================================================================
+
+    // Get timing statitics information
+    double time_track = (obj->rT2-obj->rT1).total_microseconds() * 1e-3;
+    double time_prop = (obj->rT3-obj->rT2).total_microseconds() * 1e-3;
+    double time_msckf = (obj->rT4-obj->rT3).total_microseconds() * 1e-3;
+    double time_slam_update = (obj->rT5-obj->rT4).total_microseconds() * 1e-3;
+    double time_slam_delay = (obj->rT6-obj->rT5).total_microseconds() * 1e-3;
+    double time_marg = (obj->rT7-obj->rT6).total_microseconds() * 1e-3;
+    double time_total = (obj->rT7-obj->rT1).total_microseconds() * 1e-3;
+
+#ifndef NDEBUG
+    // Timing information
+    printf(BLUE "[TIME]: %.4f ms for tracking\n" RESET, time_track);
+    printf(BLUE "[TIME]: %.4f ms for propagation\n" RESET, time_prop);
+    printf(BLUE "[TIME]: %.4f ms for MSCKF update (%d features)\n" RESET, time_msckf, (int)featsup_MSCKF.size());
+    if(obj->state->_options.max_slam_features > 0) {
+        printf(BLUE "[TIME]: %.4f ms for SLAM update (%d feats)\n" RESET, time_slam_update, (int)feats_slam_UPDATE.size());
+        printf(BLUE "[TIME]: %.4f ms for SLAM delayed init (%d feats)\n" RESET, time_slam_delay, (int)feats_slam_DELAYED.size());
+    }
+    printf(BLUE "[TIME]: %.4f ms for marginalization (%d clones in state)\n" RESET, time_marg, (int)obj->state->_clones_IMU.size());
+    printf(BLUE "[TIME]: %.4f ms for total\n" RESET, time_total);
+#endif
+
+    // Keep track of average
+    obj->total_images++;
+    obj->total_tracking_time += time_track;
+    obj->total_filter_time += (time_total - time_track);
+    obj->total_frame_time += time_total;
+
+    printf(GREEN "[AVG-TIME]: %.4f ms for tracking\n" RESET, obj->total_tracking_time / (double) obj->total_images);
+    printf(GREEN "[AVG-TIME]: %.4f ms for filter\n" RESET, obj->total_filter_time / (double) obj->total_images);
+    printf(GREEN "[AVG-TIME]: %.4f ms for total\n" RESET, obj->total_frame_time / (double) obj->total_images);
+
+    // Finally if we are saving stats to file, lets save it to file
+    if(obj->params.record_timing_information && obj->of_statistics.is_open()) {
+        // We want to publish in the IMU clock frame
+        // The timestamp in the state will be the last camera time
+        double t_ItoC = obj->state->_calib_dt_CAMtoIMU->value()(0);
+        double timestamp_inI = obj->state->_timestamp + t_ItoC;
+        // Append to the file
+        obj->of_statistics << std::fixed << std::setprecision(15)
+                      << timestamp_inI << ","
+                      << std::fixed << std::setprecision(5)
+                      << time_track << "," << time_prop << "," << time_msckf << ",";
+        if(obj->state->_options.max_slam_features > 0) {
+            obj->of_statistics << time_slam_update << "," << time_slam_delay << ",";
+        }
+        obj->of_statistics << time_marg << "," << time_total << std::endl;
+        obj->of_statistics.flush();
+    }
+
+
+    // Update our distance traveled
+    if(obj->timelastupdate != -1 && obj->state->_clones_IMU.find(obj->timelastupdate) != obj->state->_clones_IMU.end()) {
+        Eigen::Matrix<double,3,1> dx = obj->state->_imu->pos() - obj->state->_clones_IMU.at(obj->timelastupdate)->pos();
+        obj->distance += dx.norm();
+    }
+    obj->timelastupdate = timestamp;
+
+#ifndef NDEBUG
+    // Debug, print our current state
+    printf("q_GtoI = %.3f,%.3f,%.3f,%.3f | p_IinG = %.3f,%.3f,%.3f | dist = %.2f (meters)\n",
+            obj->state->_imu->quat()(0),obj->state->_imu->quat()(1),obj->state->_imu->quat()(2),obj->state->_imu->quat()(3),
+            obj->state->_imu->pos()(0),obj->state->_imu->pos()(1),obj->state->_imu->pos()(2),obj->distance);
+    printf("bg = %.4f,%.4f,%.4f | ba = %.4f,%.4f,%.4f\n",
+             obj->state->_imu->bias_g()(0),obj->state->_imu->bias_g()(1),obj->state->_imu->bias_g()(2),
+             obj->state->_imu->bias_a()(0),obj->state->_imu->bias_a()(1),obj->state->_imu->bias_a()(2));
+#endif
+
+
+#ifndef NDEBUG
+    // Debug for camera imu offset
+    if(obj->state->_options.do_calib_camera_timeoffset) {
+        printf("camera-imu timeoffset = %.5f\n",obj->state->_calib_dt_CAMtoIMU->value()(0));
+    }
+#endif
+
+#ifndef NDEBUG
+    // Debug for camera intrinsics
+    if(obj->state->_options.do_calib_camera_intrinsics) {
+        for(int i=0; i<obj->state->_options.num_cameras; i++) {
+            Vec* calib = obj->state->_cam_intrinsics.at(i);
+            printf("cam%d intrinsics = %.3f,%.3f,%.3f,%.3f | %.3f,%.3f,%.3f,%.3f\n",(int)i,
+                     calib->value()(0),calib->value()(1),calib->value()(2),calib->value()(3),
+                     calib->value()(4),calib->value()(5),calib->value()(6),calib->value()(7));
+        }
+    }
+#endif
+
+#ifndef NDEBUG
+    // Debug for camera extrinsics
+    if(obj->state->_options.do_calib_camera_pose) {
+        for(int i=0; i<obj->state->_options.num_cameras; i++) {
+            PoseJPL* calib = obj->state->_calib_IMUtoCAM.at(i);
+            printf("cam%d extrinsics = %.3f,%.3f,%.3f,%.3f | %.3f,%.3f,%.3f\n",(int)i,
+                     calib->quat()(0),calib->quat()(1),calib->quat()(2),calib->quat()(3),
+                     calib->pos()(0),calib->pos()(1),calib->pos()(2));
+        }
+    }
+#endif
+}
+
+__hetero_task_end(t2);
+__hetero_section_end(section);
 
 }
 
@@ -191,7 +660,8 @@ void feed_measurement_stereo_helper(double timestamp,
                                     cv::Mat* img1_ptr, size_t img1_size, 
                                     size_t cam_id0, 
                                     size_t cam_id1,
-                                    VioManager* obj, size_t obj_size) {
+                                    VioManager* obj, size_t obj_size,
+                                    bool *check, size_t check_size) {
     void *section = __hetero_section_begin();
     
     void *wrapper1 = __hetero_task_begin(6, 
@@ -221,7 +691,7 @@ void feed_measurement_stereo_helper(double timestamp,
     } else {
 #ifdef ILLIXR_INTEGRATION
         std::thread t_l = timed_thread("slam2 feed l", &TrackBase::feed_monocular, obj->trackFEATS, boost::ref(temp), boost::ref(*img0_ptr), boost::ref(cam_id0_temp));
-        std::thread t_r = timed_thread("slam2 feed r", &TrackBase::feed_monocular, obj->trackFEATS, boost::ref(temp), boost::ref(*img1_ptr), boost::ref(cam_id0_temp));
+        std::thread t_r = timed_thread("slam2 feed r", &TrackBase::feed_monocular, obj->trackFEATS, boost::ref(temp), boost::ref(*img1_ptr), boost::ref(cam_id1_temp));
 #else /// ILLIXR_INTEGRATION
         boost::thread t_l = boost::thread(&TrackBase::feed_monocular, obj->trackFEATS, boost::ref(temp), boost::ref(*img0_ptr), boost::ref(cam_id0_temp));
         boost::thread t_r = boost::thread(&TrackBase::feed_monocular, obj->trackFEATS, boost::ref(temp), boost::ref(*img1_ptr), boost::ref(cam_id1_temp));
@@ -266,15 +736,18 @@ void feed_measurement_stereo_helper(double timestamp,
     }
     __hetero_task_end(wrapper3);
 
-    void *wrapper4 = __hetero_task_begin(2,
+    void *wrapper4 = __hetero_task_begin(3,
                                         timestamp, 
-                                        obj, obj_size, 1,
+                                        obj, obj_size, 
+                                        check, check_size, 2,
                                         obj, obj_size,
-                                        "feed_measurement_stereo_wrapper4");
+                                        check, check_size, "feed_measurement_stereo_wrapper4");
 
     // Call on our propagate and update function
-    if(obj->is_initialized_vio)
-        obj->do_feature_propagate_update(timestamp);
+    //if(obj->is_initialized_vio)
+    do_feature_propagate_update(timestamp,
+                                obj, obj_size,
+                                check, check_size);
 
     __hetero_task_end(wrapper4);
     __hetero_section_end(section);
@@ -285,16 +758,21 @@ void VioManager::feed_measurement_stereo(double timestamp, cv::Mat& img0, cv::Ma
     cv::Mat *img0_ptr = &img0;
     cv::Mat *img1_ptr = &img1;
     auto *obj = this;
-    void *launch = __hetero_launch((void *) feed_measurement_stereo_helper, 6, 
+    //bool to check conditions in do_feature_propagate
+    bool check = false;
+    bool *check_ptr = &check;
+    void *launch = __hetero_launch((void *) feed_measurement_stereo_helper, 7, 
                                         timestamp, 
                                         img0_ptr, sizeof(img0_ptr), 
                                         img1_ptr, sizeof(img1_ptr),
                                         cam_id0, 
                                         cam_id1,
-                                        obj, sizeof(VioManager), 3,
+                                        obj, sizeof(VioManager), 
+                                        check_ptr, sizeof(bool), 4,
                                         img0_ptr, sizeof(img0_ptr), 
                                         img1_ptr, sizeof(img1_ptr),
-                                        obj, sizeof(VioManager));
+                                        obj, sizeof(VioManager),
+                                        check_ptr, sizeof(bool));
 
     
     __hetero_wait(launch);
