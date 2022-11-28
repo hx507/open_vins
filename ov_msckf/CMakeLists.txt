@@ -112,7 +112,10 @@ target_include_directories(ov_msckf_lib PUBLIC src)
 set(HPVM_DECLS_FILE /host_dir/hpvm/hpvm/build/tools/hpvm/projects/hetero-c++/lib/HPVMCFunctionDeclarations/HPVMCFunctionDeclarations.bc)
 #set(HPVM_BUILD /host_dir/hpvm/hpvm/build/)
 set(HPVM_BUILD /host_dir/hpvm/hpvm/build_debug/)
+set(HETERO_DC_LIB /host_dir/hpvm/hpvm/benchmarks/general_benchmarks/machsuite/guided_deep_copy/src/)
+
 list(APPEND HPVM_INCLUDE
+    ${HETERO_DC_LIB} # The run-time DC lib must be at the front of EVERYTHING
     ${HPVM_BUILD}/include
     ${HPVM_BUILD}/tools/hpvm
     ${HPVM_BUILD}/tools/hpvm/projects/hpvm-tensor-rt/tensor_runtime/include
@@ -135,7 +138,7 @@ function(hetero_compile_obj source_files hetero_obj)
         #COMMAND clang++-10 -fPIC -c ${src} ${MSCKF_INCLUDES}
         COMMAND ${HPVM_BUILD}/bin/clang++ -O1 ${HPVM_INCLUDE} ${MSCKF_INCLUDES} -std=c++17 -DDEVICE=CPU_TARGET -emit-llvm -fno-exceptions -Xclang -disable-lifetime-markers -E ${src} -o ${src_name}.deepcopy.cc
         COMMAND ${HPVM_BUILD}/bin/hetero-dc ${src_name}.deepcopy.cc
-        COMMAND ${HPVM_BUILD}/bin/clang++ -O1 ${HPVM_INCLUDE} ${MSCKF_INCLUDES} -std=c++17 -DDEVICE=CPU_TARGET -emit-llvm -fno-exceptions -Xclang -disable-lifetime-markers -S ${src}.deepcopy.cc -o ${src_name}.hetero.ll
+        COMMAND ${HPVM_BUILD}/bin/clang++ -O1 ${HPVM_INCLUDE} ${MSCKF_INCLUDES} -std=c++17 -DDEVICE=CPU_TARGET -emit-llvm -fno-exceptions -Xclang -disable-lifetime-markers -S ${src_name}.deepcopy.cc -o ${src_name}.hetero.ll
         DEPENDS ${src}
         )
       list(APPEND hetero_ll_files ${src_name}.hetero.ll)
